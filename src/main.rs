@@ -1,6 +1,6 @@
 mod sysinfo;
 mod utils;
-pub mod cliArgPars;
+mod cliArgPars;
 
 fn main () {
 
