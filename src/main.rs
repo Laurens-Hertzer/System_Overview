@@ -1,3 +1,6 @@
+mod sysinfo;
+mod utils;
+
 fn main() {
     println!(r#" ____            _
 / ___| _   _ ___| |_ ___ _ __ ___

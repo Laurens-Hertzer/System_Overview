@@ -1,6 +1,10 @@
 [package]
 name = "System_Overview"
 version = "0.1.0"
-edition = "2026"
+edition = "2024"
 
 [dependencies]
+sysinfo   = "0.39.2"   # System-Daten
+tui       = "0.19"   # TUI Framework
+crossterm = "0.29.0"   # Terminal-Backend
+clap      = { version = "4", features = ["derive"] }
