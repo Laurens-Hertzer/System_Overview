@@ -1,22 +1,21 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
-/// Simple program to greet a person
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    /// Name of the person to greet
-    #[arg(short, long)]
-    name: String,
+#[derive(Parser)]
+#[command(name = "sysover")]
+pub struct Cli {
+    #[arg(short, long, default_value_t = 2)]
+    pub interval: u64,
 
-    /// Number of times to greet
-    #[arg(short, long, default_value_t = 1)]
-    count: u8,
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 }
 
-fn cliArgPars() {
-    let args = Args::parse();
-
-    for _ in 0..args.count {
-        println!("Hello {}!", args.name);
-    }
+#[derive(Subcommand)]
+pub enum Commands {
+    Disk,
+    Procs {
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+    },
 }
+
