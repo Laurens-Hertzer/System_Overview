@@ -1,6 +1,7 @@
 mod sysinfo;
 mod utils;
 mod cliArgPars;
+mod tui;
 
 use clap::Parser;
 use cliArgPars::{Cli, Commands};
@@ -28,7 +29,7 @@ fn main() {
         .unwrap();
 
     match auswahl {
-        0 => println!("Dashboard"),
+        0 => tui::tui().expect("TUI failed"),
         1 => println!("Disk"),
         2 => println!("Prozesse"),
         3 => println!("Beenden"),
