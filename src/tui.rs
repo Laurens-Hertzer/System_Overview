@@ -1,6 +1,7 @@
-use std::io;
-
+use crate::backend::Event;
 use crossterm::event::{KeyCode, KeyEventKind};
+use std::io;
+use std::sync::mpsc;
 
 use ratatui::{
     DefaultTerminal, Frame,
@@ -11,31 +12,29 @@ use ratatui::{
     widgets::{Block, Gauge, Widget},
 };
 
-pub fn tui() -> io::Result<()> {
-    let mut terminal = ratatui::init();
-
-    let mut app = App {
-        exit: false,
-        progress_bar_color: Color::Green,
-    };
-
-    let app_result = app.run(&mut terminal);
-
-    ratatui::restore();
-    app_result
-}
-
 pub struct App {
     exit: bool,
     progress_bar_color: Color,
+    background_progress: f64,
 }
 
 impl App {
-    fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+    pub fn new() -> Self {
+        App {
+            exit: false,
+            progress_bar_color: Color::Green,
+            background_progress: 0_f64,
+        }
+    }
+    pub fn run(
+        &mut self,
+        terminal: &mut DefaultTerminal,
+        rx: mpsc::Receiver<Event>,
+    ) -> io::Result<()> {
         while !self.exit {
-            match crossterm::event::read()? {
-                crossterm::event::Event::Key(key_event) => self.handle_key_event(key_event)?,
-                _ => {}
+            match rx.recv().unwrap() {
+                Event::Input(key_event) => self.handle_key_event(key_event)?,
+                Event::Progress(progress) => self.background_progress = progress,
             }
             terminal.draw(|frame| self.draw(frame))?;
         }
@@ -53,8 +52,7 @@ impl App {
         } else if key_event.kind == KeyEventKind::Press && key_event.code == KeyCode::Char('c') {
             if self.progress_bar_color == Color::Green {
                 self.progress_bar_color = Color::Yellow;
-            }
-            else {
+            } else {
                 self.progress_bar_color = Color::Green;
             }
         }
@@ -92,8 +90,11 @@ impl Widget for &App {
         let progress_bar = Gauge::default()
             .gauge_style(Style::default().fg(self.progress_bar_color))
             .block(block)
-            .label(format!("Process 1: 50%"))
-            .ratio(0.5);
+            .label(format!(
+                "Process 1: {:.2}%",
+                self.background_progress * 100_f64
+            ))
+            .ratio(self.background_progress);
 
         progress_bar.render(
             Rect {
