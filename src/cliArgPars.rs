@@ -17,5 +17,6 @@ pub enum Commands {
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
     },
+    Dashboard,
 }
 
