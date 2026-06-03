@@ -39,8 +39,15 @@ fn main() {
             let (event_tx, event_rx) = mpsc::channel::<backend::Event>();
 
             let tx_to_input_events = event_tx.clone();
+
             thread::spawn(move || {
                 backend::handle_input_events(tx_to_input_events);
+            });
+
+            let tx_cpu = event_tx.clone();
+
+            thread::spawn(move || {
+                backend::cpu_background_thread(tx_cpu);
             });
 
             let tx_to_background_progress_events = event_tx.clone();

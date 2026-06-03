@@ -16,6 +16,7 @@ pub struct App {
     exit: bool,
     progress_bar_color: Color,
     background_progress: f64,
+    cpu_load_percentage: f64,
 }
 
 impl App {
@@ -24,6 +25,7 @@ impl App {
             exit: false,
             progress_bar_color: Color::Green,
             background_progress: 0_f64,
+            cpu_load_percentage: 0_f64,
         }
     }
     pub fn run(
@@ -35,6 +37,7 @@ impl App {
             match rx.recv().unwrap() {
                 Event::Input(key_event) => self.handle_key_event(key_event)?,
                 Event::Progress(progress) => self.background_progress = progress,
+                Event::CpuProgress(progress) => self.cpu_load_percentage = progress
             }
             terminal.draw(|frame| self.draw(frame))?;
         }
@@ -69,6 +72,9 @@ impl Widget for &App {
             Layout::vertical([Constraint::Percentage(20), Constraint::Percentage(80)]);
         let [title_area, gauge_area] = vertical_layout.areas(area);
 
+        let gauges_layout = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
+        let [gauge1_area, gauge2_area] = gauges_layout.areas(gauge_area);
+
         //Render title
         Line::from("Process overview")
             .bold()
@@ -82,25 +88,49 @@ impl Widget for &App {
         ])
         .centered();
 
-        let block = Block::bordered()
+        let example_block = Block::bordered()
             .title(Line::from("Background Processes"))
-            .title_bottom(instructions)
+            .title_bottom(instructions.clone())
             .border_set(border::THICK);
 
-        let progress_bar = Gauge::default()
+        let example_progress_bar = Gauge::default()
             .gauge_style(Style::default().fg(self.progress_bar_color))
-            .block(block)
+            .block(example_block)
             .label(format!(
-                "Process 1: {:.2}%",
+                "Process 2: {:.2}%",
                 self.background_progress * 100_f64
             ))
             .ratio(self.background_progress);
 
-        progress_bar.render(
+        example_progress_bar.render(
             Rect {
-                x: gauge_area.left(),
-                y: gauge_area.top(),
-                width: gauge_area.width,
+                x: gauge1_area.left(),
+                y: gauge1_area.top(),
+                width: gauge1_area.width,
+                height: 3,
+            },
+            buf,
+        );
+
+        let cpu_block = Block::bordered()
+            .title(Line::from("Background Processes"))
+            .title_bottom(instructions.clone())
+            .border_set(border::THICK);
+
+        let cpu_progress_bar = Gauge::default()
+            .gauge_style(Style::default().fg(self.progress_bar_color))
+            .block(cpu_block)
+            .label(format!(
+                "Process 1: {:.2}%",
+                self.cpu_load_percentage * 100_f64
+            ))
+            .ratio(self.cpu_load_percentage);
+
+        cpu_progress_bar.render(
+            Rect {
+                x: gauge2_area.left(),
+                y: gauge2_area.top(),
+                width: gauge2_area.width,
                 height: 3,
             },
             buf,
