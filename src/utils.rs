@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 pub fn bytes_to_terabytes(bytes: u64) -> f64 {
     bytes as f64 / 1_099_511_627_776.0
 }
@@ -9,6 +11,12 @@ pub fn bytes_to_mb(bytes: u64) -> f64 {
     bytes as f64 / 1_048_576.0
 }
 
+pub fn push_value(history: &mut VecDeque<u64>, value: u64) {
+    history.push_back(value);
+    if history.len() > 10 {
+        history.pop_front();
+    }
+}
 pub fn logo () {
     println!(r#" ____            _
 / ___| _   _ ___| |_ ___ _ __ ___

@@ -1,8 +1,10 @@
 use crate::backend::Event;
 use crossterm::event::{KeyCode, KeyEventKind};
+use std::collections::VecDeque;
 use std::io;
 use std::sync::mpsc;
 
+use ratatui::widgets::{Axis, Chart, Dataset, GraphType, RenderDirection, Sparkline};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout, Rect},
@@ -11,12 +13,13 @@ use ratatui::{
     text::Line,
     widgets::{Block, Gauge, Widget},
 };
+use ratatui::symbols::Marker;
 
 pub struct App {
     exit: bool,
     progress_bar_color: Color,
     background_progress: f64,
-    cpu_load_percentage: f64,
+    cpu_history: VecDeque<u64>,
 }
 
 impl App {
@@ -25,7 +28,7 @@ impl App {
             exit: false,
             progress_bar_color: Color::Green,
             background_progress: 0_f64,
-            cpu_load_percentage: 0_f64,
+            cpu_history: VecDeque::new(),
         }
     }
     pub fn run(
@@ -37,7 +40,12 @@ impl App {
             match rx.recv().unwrap() {
                 Event::Input(key_event) => self.handle_key_event(key_event)?,
                 Event::Progress(progress) => self.background_progress = progress,
-                Event::CpuProgress(progress) => self.cpu_load_percentage = progress
+                Event::CpuProgress(progress) => {
+                    self.cpu_history.push_back((progress * 100.0) as u64);
+                    while self.cpu_history.len() > 10 {
+                        self.cpu_history.pop_front();
+                    }
+                }
             }
             terminal.draw(|frame| self.draw(frame))?;
         }
@@ -72,7 +80,8 @@ impl Widget for &App {
             Layout::vertical([Constraint::Percentage(20), Constraint::Percentage(80)]);
         let [title_area, gauge_area] = vertical_layout.areas(area);
 
-        let gauges_layout = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
+        let gauges_layout =
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
         let [gauge1_area, gauge2_area] = gauges_layout.areas(gauge_area);
 
         //Render title
@@ -87,32 +96,32 @@ impl Widget for &App {
             "<Q> ".blue().bold(),
         ])
         .centered();
+        /*
+                let example_block = Block::bordered()
+                    .title(Line::from("Background Processes"))
+                    .title_bottom(instructions.clone())
+                    .border_set(border::THICK);
 
-        let example_block = Block::bordered()
-            .title(Line::from("Background Processes"))
-            .title_bottom(instructions.clone())
-            .border_set(border::THICK);
+                let example_progress_bar = Gauge::default()
+                    .gauge_style(Style::default().fg(self.progress_bar_color))
+                    .block(example_block)
+                    .label(format!(
+                        "Process 2: {:.2}%",
+                        self.background_progress * 100_f64
+                    ))
+                    .ratio(self.background_progress);
 
-        let example_progress_bar = Gauge::default()
-            .gauge_style(Style::default().fg(self.progress_bar_color))
-            .block(example_block)
-            .label(format!(
-                "Process 2: {:.2}%",
-                self.background_progress * 100_f64
-            ))
-            .ratio(self.background_progress);
-
-        example_progress_bar.render(
-            Rect {
-                x: gauge1_area.left(),
-                y: gauge1_area.top(),
-                width: gauge1_area.width,
-                height: 3,
-            },
-            buf,
-        );
-
-        let cpu_block = Block::bordered()
+                example_progress_bar.render(
+                    Rect {
+                        x: gauge1_area.left(),
+                        y: gauge1_area.top(),
+                        width: gauge1_area.width,
+                        height: 3,
+                    },
+                    buf,
+                );
+        */
+        /*let cpu_block = Block::bordered()
             .title(Line::from("Background Processes"))
             .title_bottom(instructions.clone())
             .border_set(border::THICK);
@@ -135,5 +144,41 @@ impl Widget for &App {
             },
             buf,
         );
+         */
+        /* Sparkline
+                let data: Vec<u64> = self.cpu_history.iter().copied().collect();
+                let current = data.last().copied().unwrap_or(0);
+
+                let data: Vec<u64> = self.cpu_history.iter().copied().collect();
+                Sparkline::default()
+                    .block(Block::bordered().title(format!("CPU: {current}%")))
+                    .data(&data)
+                    .max(100)
+                    .render(area, buf);
+            }
+        }
+        */
+
+        let data: Vec<u64> = self.cpu_history.iter().copied().collect();
+        let current = data.last().copied().unwrap_or(0);
+
+        let dataset = Dataset::default()
+            .name("Cpu Usage")
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Color::Blue)
+            .data(&data);
+
+        let x_axis = Axis::default()
+            .title("Hustle".blue())
+            .bounds([0.0, 10.0])
+            .labels(["0%", "50%", "100%"]);
+
+        let y_axis = Axis::default()
+            .title("Profit".blue())
+            .bounds([0.0, 10.0])
+            .labels(["0", "5", "10"]);
+
+        let chart = Chart::new(vec![dataset]).x_axis(x_axis).y_axis(y_axis);
     }
 }
