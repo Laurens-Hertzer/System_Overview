@@ -159,26 +159,41 @@ impl Widget for &App {
         }
         */
 
-        let data: Vec<u64> = self.cpu_history.iter().copied().collect();
-        let current = data.last().copied().unwrap_or(0);
+        let chart_layout = Layout::horizontal([
+            Constraint::Percentage(20),  // Chart nimmt 50% der Breite
+            Constraint::Percentage(50),  // Rest bleibt frei (oder für anderes Widget)
+        ]);
+        let [chart_area, _rest] = chart_layout.areas(gauge2_area);
+
+        let data: Vec<(f64, f64)> = self
+            .cpu_history
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as f64, v as f64))
+            .collect();
+
+        let current = self.cpu_history.back().copied().unwrap_or(0);
 
         let dataset = Dataset::default()
             .name("Cpu Usage")
-            .marker(Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Color::Blue)
+            .marker(Marker::Sextant)
+            .graph_type(GraphType::Bar)
+            .style(Style::default().fg(Color::Blue))
             .data(&data);
 
         let x_axis = Axis::default()
-            .title("Hustle".blue())
-            .bounds([0.0, 10.0])
-            .labels(["0%", "50%", "100%"]);
+            .bounds([0.0, 9.0])
+            .labels([""]);
 
         let y_axis = Axis::default()
-            .title("Profit".blue())
-            .bounds([0.0, 10.0])
-            .labels(["0", "5", "10"]);
+            .title(format!("CPU: {}%", current).blue())
+            .bounds([0.0, 100.0]) // CPU-Auslastung 0–100%
+            .labels(["0", "50", "100"]);
 
-        let chart = Chart::new(vec![dataset]).x_axis(x_axis).y_axis(y_axis);
+        let chart = Chart::new(vec![dataset])
+            .x_axis(x_axis)
+            .y_axis(y_axis);
+
+        chart.render(chart_area, buf);
     }
 }

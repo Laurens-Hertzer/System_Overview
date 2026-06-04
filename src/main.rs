@@ -26,9 +26,9 @@ fn main() {
 
     let tx_to_input_events = event_tx.clone();
 
-    thread::spawn(move || {
+    /*thread::spawn(move || {
         backend::handle_input_events(tx_to_input_events);
-    });
+    });*/
 
     let tx_cpu = event_tx.clone();
 
