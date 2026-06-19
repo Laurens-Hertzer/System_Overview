@@ -19,17 +19,6 @@ pub fn handle_input_events(tx: mpsc::Sender<Event>) {
     }
 }
 
-pub fn run_background_thread(tx: mpsc::Sender<Event>) {
-    let mut progress = 0_f64;
-    let increment = 0.01_f64;
-    loop {
-        thread::sleep(Duration::from_millis(100));
-        progress += increment;
-        progress = progress.min(1_f64);
-        tx.send(Event::Progress(progress)).unwrap();
-    }
-}
-
 pub fn cpu_background_thread(tx: mpsc::Sender<Event>) { ;
     let mut sys = System::new_all();
 
