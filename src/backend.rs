@@ -6,7 +6,6 @@ use sysinfo::{System, CpuRefreshKind, RefreshKind};
 
 pub enum Event {
     Input(crossterm::event::KeyEvent),
-    Progress(f64),
     CpuProgress(f64),
 }
 
