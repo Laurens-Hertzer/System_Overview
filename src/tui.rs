@@ -13,6 +13,7 @@ pub struct App {
     progress_bar_color: Color,
     tab_selection : i16,
     cpu_history: VecDeque<u64>,
+    ram_history: VecDeque<u64>,
 }
 
 impl App {
@@ -22,6 +23,7 @@ impl App {
             progress_bar_color: Color::Green,
             tab_selection: 0,
             cpu_history: VecDeque::new(),
+            ram_history: VecDeque::new(),
         }
     }
 
@@ -43,6 +45,12 @@ impl App {
                         self.cpu_history.push_back((progress * 100.0) as u64);
                         while self.cpu_history.len() > 60 {
                             self.cpu_history.pop_front();
+                        }
+                    }
+                    Event::RamProgress(progress) => {
+                        self.ram_history.push_back((progress) as u64);
+                        while self.ram_history.len() > 60 {
+                            self.ram_history.pop_front();
                         }
                     }
                 }
@@ -94,16 +102,20 @@ impl App {
         graph6_area: Rect,
         buf: &mut Buffer,
     ) {
-        let current = self.cpu_history.back().copied().unwrap_or(0);
+        let mut sys = sysinfo::System::new_all();
 
-        let len = self.cpu_history.len() as f64;
+        // CPU
 
-        let offset = 60.0 - len;
-        let data: Vec<(f64, f64)> = self
+        let cpu_current = self.cpu_history.back().copied().unwrap_or(0);
+
+        let cpu_len = self.cpu_history.len() as f64;
+
+        let ram_offset = 60.0 - cpu_len;
+        let cpu_data: Vec<(f64, f64)> = self
             .cpu_history
             .iter()
             .enumerate()
-            .map(|(i, &v)| (offset + i as f64, v as f64))
+            .map(|(i, &v)| (ram_offset + i as f64, v as f64))
             .collect();
 
         let x_labels = vec![
@@ -122,16 +134,60 @@ impl App {
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
             .style(Style::default().fg(Color::Cyan))
-            .data(&data)])
+            .data(&cpu_data)])
             .block(
                 Block::bordered()
-                    .title(Line::from(format!(" CPU {}% ", current)).fg(Color::Cyan).bold())
+                    .title(Line::from(format!(" CPU {}% ", cpu_current)).fg(Color::Cyan).bold())
                     .border_set(border::THICK),
             )
             .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
             .y_axis(Axis::default().bounds([0.0, 100.0]).labels(y_labels))
             .render(graph1_area, buf);
-    }
+
+        // Ram
+
+            let ram_current = self.ram_history.back().copied().unwrap_or(0);
+
+            let ram_len = self.ram_history.len() as f64;
+
+            let ram_offset = 60.0 - ram_len;
+
+            let ram_data: Vec<(f64, f64)> = self
+                .ram_history
+                .iter()
+                .enumerate()
+                .map(|(i, &v)| (ram_offset + i as f64, v as f64))
+                .collect();
+
+            let x_labels = vec![
+                Line::from("60s").left_aligned(),
+                Line::from("30s").centered(),
+                Line::from("0s").right_aligned(),
+            ];
+            let max_ram = (sys.total_memory() as f64) / 1_073_741_824.0;
+            let max_ram_string = format!("{:.0} GB", max_ram);
+            let half_max_ram_string = format!("{:.0} GB", max_ram / 2.0);
+
+            let y_labels = vec![
+                Line::from("0%"),
+                Line::from(half_max_ram_string.as_str()),
+                Line::from(max_ram_string.as_str()),
+            ];
+
+            Chart::new(vec![Dataset::default()
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Blue))
+                .data(&ram_data)])
+                .block(
+                    Block::bordered()
+                        .title(Line::from(format!(" RAM {}% ", ram_current)).fg(Color::Blue).bold())
+                        .border_set(border::THICK),
+                )
+                .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
+                .y_axis(Axis::default().bounds([0.0, max_ram]).labels(y_labels))
+                .render(graph2_area, buf);
+        }
 
     fn render_containers(
         &self,

@@ -15,6 +15,7 @@ fn main() -> Result<()> {
     let mut terminal = ratatui::init();
     let (event_tx, event_rx) = mpsc::channel::<backend::Event>();
     let tx_cpu = event_tx.clone();
+    let tx_ram = event_tx.clone();
 
     thread::spawn(move || {
         backend::handle_input_events(event_tx);
@@ -22,6 +23,10 @@ fn main() -> Result<()> {
 
     thread::spawn(move || {
         backend::cpu_background_thread(tx_cpu);
+    });
+
+    thread::spawn(move || {
+        backend::ram_background_thread(tx_ram);
     });
 
     let mut app = tui::App::new();
