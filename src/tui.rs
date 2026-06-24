@@ -169,7 +169,7 @@ impl App {
             let half_max_ram_string = format!("{:.0} GB", max_ram / 2.0);
 
             let y_labels = vec![
-                Line::from("0%"),
+                Line::from("0 GB"),
                 Line::from(half_max_ram_string.as_str()),
                 Line::from(max_ram_string.as_str()),
             ];
@@ -181,7 +181,7 @@ impl App {
                 .data(&ram_data)])
                 .block(
                     Block::bordered()
-                        .title(Line::from(format!(" RAM {}% ", ram_current)).fg(Color::Blue).bold())
+                        .title(Line::from(format!(" RAM {} GB", ram_current)).fg(Color::Blue).bold())
                         .border_set(border::THICK),
                 )
                 .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
