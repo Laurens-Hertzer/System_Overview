@@ -10,3 +10,4 @@ sysinfo   = "0.39.2"   # System-Daten
 crossterm = "0.29.0"   # Terminal-Backend
 clap      = { version = "4", features = ["derive"] }
 color-eyre = "0.6.5"
+nvml-wrapper = "0.12.1"

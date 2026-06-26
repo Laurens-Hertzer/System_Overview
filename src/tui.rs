@@ -4,16 +4,33 @@ use std::collections::VecDeque;
 use std::io;
 use std::ptr::null;
 use std::sync::mpsc;
-
-use ratatui::{DefaultTerminal, Frame, layout::{Alignment, Constraint, Layout, Offset, Rect}, style::{Color, Style, Stylize}, symbols::{border, Marker}, text::{Line, Span}, widgets::{Axis, Block, Chart, Dataset, GraphType, Widget, Paragraph, Tabs}, symbols};
+use nvml_wrapper::error::Bits::U32;
+use nvml_wrapper::error::NvmlError;
+use nvml_wrapper::struct_wrappers::device::MemoryInfo;
 use ratatui::prelude::Buffer;
+use ratatui::{
+    DefaultTerminal, Frame,
+    layout::{Alignment, Constraint, Layout, Offset, Rect},
+    style::{Color, Style, Stylize},
+    symbols,
+    symbols::{Marker, border},
+    text::{Line, Span},
+    widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Tabs, Widget},
+};
+use crate::utils::logo_rata;
 
 pub struct App {
     exit: bool,
     progress_bar_color: Color,
-    tab_selection : i16,
+    tab_selection: i16,
     cpu_history: VecDeque<u64>,
     ram_history: VecDeque<u64>,
+    gpu_history: VecDeque<u64>,
+    gpu_brand: String,
+    fan_speed: u32,
+    power_limit: u32,
+    memory_info: Option<MemoryInfo>,
+    gpu_available: bool,
 }
 
 impl App {
@@ -24,6 +41,12 @@ impl App {
             tab_selection: 0,
             cpu_history: VecDeque::new(),
             ram_history: VecDeque::new(),
+            gpu_history: VecDeque::new(),
+            gpu_brand: String::new(),
+            fan_speed: 0,
+            power_limit: 0,
+            memory_info: None,
+            gpu_available: true,
         }
     }
 
@@ -36,6 +59,9 @@ impl App {
         while !self.exit {
             if let Ok(event) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 match event {
+                    Event::GpuAvailable => {
+                        self.gpu_available = true;
+                    }
                     Event::Input(key_event) => {
                         if key_event.kind == KeyEventKind::Press {
                             self.handle_key_event(key_event)?;
@@ -52,6 +78,34 @@ impl App {
                         while self.ram_history.len() > 60 {
                             self.ram_history.pop_front();
                         }
+                    }
+                    // HIER: Das Struct-Matching für die GPU
+                    Event::GpuProgress {
+                        utilization,
+                        brand,
+                        fan_speed,
+                        power_limit,
+                        memory_info
+                    } => {
+                        // 1. Auslastung in den Verlauf pushen
+                        self.gpu_history.push_back(utilization as u64);
+                        while self.gpu_history.len() > 60 {
+                            self.gpu_history.pop_front();
+                        }
+
+                        // 2. Werte an dein App-Struct übertragen
+                        self.fan_speed = fan_speed;
+                        self.power_limit = power_limit / 1000; // von Milliwatt in Watt
+                        self.memory_info = Some(memory_info);
+
+                        // 3. Das NVML-Brand-Enum in Text für die UI übersetzen
+                        self.gpu_brand = match brand {
+                            nvml_wrapper::enum_wrappers::device::Brand::Nvidia => "NVIDIA".to_string(),
+                            nvml_wrapper::enum_wrappers::device::Brand::GeForce => "GeForce".to_string(),
+                            nvml_wrapper::enum_wrappers::device::Brand::Tesla => "Tesla".to_string(),
+                            nvml_wrapper::enum_wrappers::device::Brand::Quadro => "Quadro".to_string(),
+                            _ => "Unknown GPU".to_string(),
+                        };
                     }
                 }
                 terminal.draw(|frame| self.draw(frame))?;
@@ -124,39 +178,97 @@ impl App {
             Line::from("0s").right_aligned(),
         ];
 
-        let y_labels = vec![
-            Line::from("0%"),
-            Line::from("50%"),
-            Line::from("100%"),
-        ];
+        let y_labels = vec![Line::from("0%"), Line::from("50%"), Line::from("100%")];
 
-        Chart::new(vec![Dataset::default()
-            .marker(Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(Color::Cyan))
-            .data(&cpu_data)])
-            .block(
-                Block::bordered()
-                    .title(Line::from(format!(" CPU {}% ", cpu_current)).fg(Color::Cyan).bold())
-                    .border_set(border::THICK),
-            )
-            .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
-            .y_axis(Axis::default().bounds([0.0, 100.0]).labels(y_labels))
-            .render(graph1_area, buf);
+        Chart::new(vec![
+            Dataset::default()
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Cyan))
+                .data(&cpu_data),
+        ])
+        .block(
+            Block::bordered()
+                .title(
+                    Line::from(format!(" CPU {}% ", cpu_current))
+                        .fg(Color::Cyan)
+                        .bold(),
+                )
+                .border_set(border::THICK),
+        )
+        .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
+        .y_axis(Axis::default().bounds([0.0, 100.0]).labels(y_labels))
+        .render(graph1_area, buf);
 
         // Ram
 
-            let ram_current = self.ram_history.back().copied().unwrap_or(0);
+        let max_ram = (sys.total_memory() as f64) / 1_073_741_824.0;
 
-            let ram_len = self.ram_history.len() as f64;
+        let max_ram_string = format!("{:.0} GB", max_ram);
 
-            let ram_offset = 60.0 - ram_len;
+        let ram_current = self.ram_history.back().copied().unwrap_or(0);
 
-            let ram_data: Vec<(f64, f64)> = self
-                .ram_history
+        let ram_current_procent = (((ram_current as f64) / max_ram) * 100.0).round() as u64;
+
+        let half_max_ram_string = format!("{:.0} GB", max_ram / 2.0);
+
+        let ram_len = self.ram_history.len() as f64;
+
+        let ram_offset = 60.0 - ram_len;
+
+        let ram_data: Vec<(f64, f64)> = self
+            .ram_history
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (ram_offset + i as f64, v as f64))
+            .collect();
+
+        let x_labels = vec![
+            Line::from("60s").left_aligned(),
+            Line::from("30s").centered(),
+            Line::from("0s").right_aligned(),
+        ];
+
+        let y_labels = vec![
+            Line::from("0 GB"),
+            Line::from(half_max_ram_string.as_str()),
+            Line::from(max_ram_string.as_str()),
+        ];
+
+        Chart::new(vec![
+            Dataset::default()
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Blue))
+                .data(&ram_data),
+        ])
+        .block(
+            Block::bordered()
+                .title(
+                    Line::from(format!(" RAM {} % ", ram_current_procent))
+                        .fg(Color::Blue)
+                        .bold(),
+                )
+                .border_set(border::THICK),
+        )
+        .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
+        .y_axis(Axis::default().bounds([0.0, max_ram]).labels(y_labels))
+        .render(graph2_area, buf);
+
+        //GPU 1
+
+        if (self.gpu_available == true) {
+            let gpu_current = self.gpu_history.back().copied().unwrap_or(0);
+
+            let gpu_len = self.gpu_history.len() as f64;
+
+            let gpu_offset = 60.0 - gpu_len;
+
+            let gpu_data: Vec<(f64, f64)> = self
+                .gpu_history
                 .iter()
                 .enumerate()
-                .map(|(i, &v)| (ram_offset + i as f64, v as f64))
+                .map(|(i, &v)| (gpu_offset + i as f64, v as f64))
                 .collect();
 
             let x_labels = vec![
@@ -164,46 +276,46 @@ impl App {
                 Line::from("30s").centered(),
                 Line::from("0s").right_aligned(),
             ];
-            let max_ram = (sys.total_memory() as f64) / 1_073_741_824.0;
-            let max_ram_string = format!("{:.0} GB", max_ram);
-            let half_max_ram_string = format!("{:.0} GB", max_ram / 2.0);
 
-            let y_labels = vec![
-                Line::from("0 GB"),
-                Line::from(half_max_ram_string.as_str()),
-                Line::from(max_ram_string.as_str()),
-            ];
+            let y_labels = vec![Line::from("0%"), Line::from("50%"), Line::from("100%")];
 
-            Chart::new(vec![Dataset::default()
-                .marker(Marker::Braille)
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::Blue))
-                .data(&ram_data)])
+            Chart::new(vec![
+                Dataset::default()
+                    .marker(Marker::Braille)
+                    .graph_type(GraphType::Line)
+                    .style(Style::default().fg(Color::Cyan))
+                    .data(&gpu_data),
+            ])
                 .block(
                     Block::bordered()
-                        .title(Line::from(format!(" RAM {} GB", ram_current)).fg(Color::Blue).bold())
+                        .title(
+                            Line::from(format!(" GPU {}% ", gpu_current))
+                                .fg(Color::Cyan)
+                                .bold(),
+                        )
                         .border_set(border::THICK),
                 )
                 .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
-                .y_axis(Axis::default().bounds([0.0, max_ram]).labels(y_labels))
-                .render(graph2_area, buf);
+                .y_axis(Axis::default().bounds([0.0, 100.0]).labels(y_labels))
+                .render(graph3_area, buf);
+        } else {
+            logo_rata(graph3_area, buf)
         }
 
-    fn render_containers(
-        &self,
-        area: Rect,
-        buf: &mut Buffer,
-    ) {
+        //SSD
+
+        //GPU 0
+
+        //WLAN
+    }
+
+    fn render_containers(&self, area: Rect, buf: &mut Buffer) {
         Paragraph::new("Containers")
             .block(Block::bordered())
             .render(area, buf);
     }
 
-    fn render_network(
-        &self,
-        area: Rect,
-        buf: &mut Buffer,
-    ) {
+    fn render_network(&self, area: Rect, buf: &mut Buffer) {
         Paragraph::new("Network")
             .block(Block::bordered())
             .render(area, buf);
@@ -215,16 +327,11 @@ impl Widget for &App {
     where
         Self: Sized,
     {
-        let vertical = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Percentage(100)
-        ]);
+        let vertical = Layout::vertical([Constraint::Length(1), Constraint::Percentage(100)]);
         let [tabs_area, content_area] = vertical.areas(area);
 
-        let content_layout = Layout::vertical([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ]);
+        let content_layout =
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
 
         let [top_area, bottom_area] = content_layout.areas(content_area);
 
