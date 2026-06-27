@@ -30,7 +30,7 @@ pub struct App {
     fan_speed: u32,
     power_limit: u32,
     memory_info: Option<MemoryInfo>,
-    gpu_available: bool,
+    gpu_not_available: bool,
 }
 
 impl App {
@@ -46,7 +46,7 @@ impl App {
             fan_speed: 0,
             power_limit: 0,
             memory_info: None,
-            gpu_available: true,
+            gpu_not_available: true,
         }
     }
 
@@ -59,8 +59,8 @@ impl App {
         while !self.exit {
             if let Ok(event) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 match event {
-                    Event::GpuAvailable => {
-                        self.gpu_available = true;
+                    Event::GpuNotAvailable => {
+                        self.gpu_not_available = true;
                     }
                     Event::Input(key_event) => {
                         if key_event.kind == KeyEventKind::Press {
@@ -257,7 +257,7 @@ impl App {
 
         //GPU 1
 
-        if (self.gpu_available == true) {
+        if (self.gpu_not_available == false) {
             let gpu_current = self.gpu_history.back().copied().unwrap_or(0);
 
             let gpu_len = self.gpu_history.len() as f64;

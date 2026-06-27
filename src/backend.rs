@@ -18,7 +18,7 @@ pub enum Event {
         power_limit: u32,
         memory_info: MemoryInfo,
     },
-    GpuAvailable,
+    GpuNotAvailable,
 }
 
 pub fn handle_input_events(tx: mpsc::Sender<Event>) {
@@ -63,7 +63,7 @@ pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
     let nvml = match Nvml::init() {
         Ok(instance) => instance,
         Err(_) => {
-            tx.send(Event::GpuAvailable).ok();
+            tx.send(Event::GpuNotAvailable).ok();
             return;
         }
     };
@@ -71,7 +71,7 @@ pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
     let device = match nvml.device_by_index(0) {
         Ok(dev) => dev,
         Err(_) => {
-            tx.send(Event::GpuAvailable).ok();
+            tx.send(Event::GpuNotAvailable).ok();
             return;
         }
     };
