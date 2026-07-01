@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{System, CpuRefreshKind, RefreshKind};
+use sysinfo::{System, CpuRefreshKind, RefreshKind, Disks};
 use nvml_wrapper::Nvml;
 use nvml_wrapper::struct_wrappers::device::{MemoryInfo, Utilization};
 use crate::utils::{bytes_to_gb, logo_rata, logo_print};
@@ -19,6 +19,7 @@ pub enum Event {
         memory_info: MemoryInfo,
     },
     GpuNotAvailable,
+    DiskProgress(f64),
 }
 
 pub fn handle_input_events(tx: mpsc::Sender<Event>) {
@@ -112,5 +113,45 @@ pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
 
         thread::sleep(Duration::from_millis(1000));
     }
+}
+
+pub fn disk_background_thread(tx: mpsc::Sender<Event>) { ;
+    let mut sys = System::new_all();
+
+    loop {
+        let disks = Disks::new_with_refreshed_list();
+        let disk_usage = disk.usage();
+        if tx.send(Event::DiskProgress {
+            utilization: rates.gpu as f64,
+amount
+        }).is_err() { break; }
+
+        thread::sleep(Duration::from_millis(1000));
+    }
+
+}
+
+pub fn cpu_background_thread(tx: mpsc::Sender<Event>) { ;
+    let mut sys = System::new_all();
+
+    loop {
+        sys.refresh_cpu_all();
+        let cpu_usage = sys.global_cpu_usage();
+        let cpu_ratio = (cpu_usage as f64) / 100.0;
+        if tx.send(Event::CpuProgress(cpu_ratio)).is_err() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(1000));
+        if tx.send(Event::GpuProgress {
+            utilization: rates.gpu as f64,
+            brand,
+            fan_speed,
+            power_limit,
+            memory_info,
+        }).is_err() { break; }
+
+        thread::sleep(Duration::from_millis(1000));
+    }
+
 }
 

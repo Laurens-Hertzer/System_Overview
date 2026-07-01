@@ -164,12 +164,12 @@ impl App {
 
         let cpu_len = self.cpu_history.len() as f64;
 
-        let ram_offset = 60.0 - cpu_len;
+        let cpu_offset = 60.0 - cpu_len;
         let cpu_data: Vec<(f64, f64)> = self
             .cpu_history
             .iter()
             .enumerate()
-            .map(|(i, &v)| (ram_offset + i as f64, v as f64))
+            .map(|(i, &v)| (cpu_offset + i as f64, v as f64))
             .collect();
 
         let x_labels = vec![
@@ -302,7 +302,47 @@ impl App {
             logo_rata(graph3_area, buf)
         }
 
-        //SSD
+        //disk
+
+        let disk_current = self.disk_history.back().copied().unwrap_or(0);
+
+        let disk_len = self.disk_history.len() as f64;
+
+        let disk_offset = 60.0 - disk_len;
+        let disk_data: Vec<(f64, f64)> = self
+            .disk_history
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (ram_offset + i as f64, v as f64))
+            .collect();
+
+        let x_labels = vec![
+            Line::from("60s").left_aligned(),
+            Line::from("30s").centered(),
+            Line::from("0s").right_aligned(),
+        ];
+
+        let y_labels = vec![Line::from("0%"), Line::from("50%"), Line::from("100%")];
+
+        Chart::new(vec![
+            Dataset::default()
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(Color::Cyan))
+                .data(&disk_data),
+        ])
+            .block(
+                Block::bordered()
+                    .title(
+                        Line::from(format!(" disk {}% ", disk_current))
+                            .fg(Color::Cyan)
+                            .bold(),
+                    )
+                    .border_set(border::THICK),
+            )
+            .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
+            .y_axis(Axis::default().bounds([0.0, 100.0]).labels(y_labels))
+            .render(graph1_area, buf);
 
         //GPU 0
 
