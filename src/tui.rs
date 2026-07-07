@@ -31,6 +31,11 @@ pub struct App {
     power_limit: u32,
     memory_info: Option<MemoryInfo>,
     gpu_not_available: bool,
+    disk_history: VecDeque<u64>,
+    disk_name: String,
+    total_disk_space: u64,
+    available_disk_space: u64,
+    used_disk_space: u64,
 }
 
 impl App {
@@ -47,6 +52,11 @@ impl App {
             power_limit: 0,
             memory_info: None,
             gpu_not_available: true,
+            disk_history: VecDeque::new(),
+            disk_name: String::new(),
+            total_disk_space: 0,
+            available_disk_space: 0,
+            used_disk_space: 0,
         }
     }
 
@@ -107,6 +117,20 @@ impl App {
                             _ => "Unknown GPU".to_string(),
                         };
                     }
+                    Event::DiskProgress {
+                        disk_name,
+                        available_disk_space,
+                        total_disk_space,
+                        used_disk_space
+                    } => {
+                        self.disk_history.push_back(used_disk_space as u64);
+                        while self.disk_history.len() > 60 {
+                        self.disk_history.pop_front();
+                    }
+                        self.disk_name = disk_name;
+                        self.total_disk_space = total_disk_space;
+                        self.available_disk_space = available_disk_space;
+                        }
                 }
                 terminal.draw(|frame| self.draw(frame))?;
             }

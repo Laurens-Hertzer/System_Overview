@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{System, CpuRefreshKind, RefreshKind, Disks};
+use sysinfo::{System, CpuRefreshKind, RefreshKind, Disks, DiskUsage, Disk};
 use nvml_wrapper::Nvml;
 use nvml_wrapper::struct_wrappers::device::{MemoryInfo, Utilization};
 use crate::utils::{bytes_to_gb, logo_rata, logo_print};
@@ -19,7 +19,12 @@ pub enum Event {
         memory_info: MemoryInfo,
     },
     GpuNotAvailable,
-    DiskProgress(f64),
+    DiskProgress {
+        disk_name: String,
+        total_disk_space: u64,
+        available_disk_space: u64,
+        used_disk_space: u64,
+    },
 }
 
 pub fn handle_input_events(tx: mpsc::Sender<Event>) {
@@ -31,7 +36,8 @@ pub fn handle_input_events(tx: mpsc::Sender<Event>) {
     }
 }
 
-pub fn cpu_background_thread(tx: mpsc::Sender<Event>) { ;
+pub fn cpu_background_thread(tx: mpsc::Sender<Event>) {
+
     let mut sys = System::new_all();
 
     loop {
@@ -43,11 +49,11 @@ pub fn cpu_background_thread(tx: mpsc::Sender<Event>) { ;
         }
         thread::sleep(Duration::from_millis(1000));
     }
-
 }
 
-pub fn ram_background_thread(tx: mpsc::Sender<Event>) { ;
-let mut sys = System::new_all();
+pub fn ram_background_thread(tx: mpsc::Sender<Event>) {
+
+    let mut sys = System::new_all();
 
     loop {
         sys.refresh_memory();
@@ -80,12 +86,20 @@ pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
     loop {
         let rates = match device.utilization_rates() {
             Ok(r) => r,
-            Err(e) => { eprintln!("utilization_rates: {e}"); thread::sleep(Duration::from_millis(1000)); continue; }
+            Err(e) => {
+                eprintln!("utilization_rates: {e}");
+                thread::sleep(Duration::from_millis(1000));
+                continue;
+            }
         };
 
         let brand = match device.brand() {
             Ok(b) => b,
-            Err(e) => { eprintln!("brand: {e}"); thread::sleep(Duration::from_millis(1000)); continue; }
+            Err(e) => {
+                eprintln!("brand: {e}");
+                thread::sleep(Duration::from_millis(1000));
+                continue;
+            }
         };
 
         let fan_speed = match device.fan_speed(0) {
@@ -95,12 +109,20 @@ pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
 
         let power_limit = match device.enforced_power_limit() {
             Ok(p) => p,
-            Err(e) => { eprintln!("power_limit: {e}"); thread::sleep(Duration::from_millis(1000)); continue; }
+            Err(e) => {
+                eprintln!("power_limit: {e}");
+                thread::sleep(Duration::from_millis(1000));
+                continue;
+            }
         };
 
         let memory_info = match device.memory_info() {
             Ok(m) => m,
-            Err(e) => { eprintln!("memory_info: {e}"); thread::sleep(Duration::from_millis(1000)); continue; }
+            Err(e) => {
+                eprintln!("memory_info: {e}");
+                thread::sleep(Duration::from_millis(1000));
+                continue;
+            }
         };
 
         if tx.send(Event::GpuProgress {
@@ -115,43 +137,27 @@ pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
     }
 }
 
-pub fn disk_background_thread(tx: mpsc::Sender<Event>) { ;
-    let mut sys = System::new_all();
-
+pub fn disk_background_thread(tx: mpsc::Sender<Event>) {
     loop {
         let disks = Disks::new_with_refreshed_list();
-        let disk_usage = disk.usage();
-        if tx.send(Event::DiskProgress {
-            utilization: rates.gpu as f64,
-amount
-        }).is_err() { break; }
 
-        thread::sleep(Duration::from_millis(1000));
-    }
+        for disk in disks.list() {
+            let disk_name = disk.name().to_string_lossy().to_string();
+            let total_disk_space = disk.total_space();
+            let available_disk_space = disk.available_space();
+            let used_disk_space = total_disk_space.saturating_sub(available_disk_space);
 
-}
-
-pub fn cpu_background_thread(tx: mpsc::Sender<Event>) { ;
-    let mut sys = System::new_all();
-
-    loop {
-        sys.refresh_cpu_all();
-        let cpu_usage = sys.global_cpu_usage();
-        let cpu_ratio = (cpu_usage as f64) / 100.0;
-        if tx.send(Event::CpuProgress(cpu_ratio)).is_err() {
-            break;
+            if tx.send(Event::DiskProgress {
+                disk_name,
+                total_disk_space,
+                available_disk_space,
+                used_disk_space,
+            }).is_err() {
+                return;
+            }
         }
-        thread::sleep(Duration::from_millis(1000));
-        if tx.send(Event::GpuProgress {
-            utilization: rates.gpu as f64,
-            brand,
-            fan_speed,
-            power_limit,
-            memory_info,
-        }).is_err() { break; }
 
         thread::sleep(Duration::from_millis(1000));
     }
-
 }
 
