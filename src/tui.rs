@@ -281,7 +281,7 @@ impl App {
 
         //GPU 1
 
-        if (self.gpu_not_available == false) {
+        if (self.gpu_not_available == true) {
             let gpu_current = self.gpu_history.back().copied().unwrap_or(0);
 
             let gpu_len = self.gpu_history.len() as f64;
