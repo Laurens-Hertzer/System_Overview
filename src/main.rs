@@ -17,6 +17,7 @@ fn main() -> Result<()> {
     let tx_cpu = event_tx.clone();
     let tx_ram = event_tx.clone();
     let tx_gpu = event_tx.clone();
+    let tx_disk = event_tx.clone();
 
     thread::spawn(move || {
         backend::handle_input_events(event_tx);
@@ -32,6 +33,10 @@ fn main() -> Result<()> {
 
     thread::spawn(move || {
         backend::gpu_background_thread(tx_gpu);
+    });
+
+    thread::spawn(move || {
+        backend::disk_background_thread(tx_disk);
     });
 
     let mut app = tui::App::new();

@@ -36,6 +36,9 @@ pub struct App {
     total_disk_space: u64,
     available_disk_space: u64,
     used_disk_space: u64,
+    read_bytes_per_sec: u32,
+    write_bytes_per_sec: u32,
+    disk_max_bytes_per_sec: u64,
 }
 
 impl App {
@@ -57,6 +60,9 @@ impl App {
             total_disk_space: 0,
             available_disk_space: 0,
             used_disk_space: 0,
+            read_bytes_per_sec: 0,
+            write_bytes_per_sec: 0,
+            disk_max_bytes_per_sec: 0,
         }
     }
 
@@ -121,16 +127,36 @@ impl App {
                         disk_name,
                         available_disk_space,
                         total_disk_space,
-                        used_disk_space
+                        used_disk_space,
+                        read_bytes_per_sec,
+                        write_bytes_per_sec,
                     } => {
-                        self.disk_history.push_back(used_disk_space as u64);
-                        while self.disk_history.len() > 60 {
-                        self.disk_history.pop_front();
-                    }
-                        self.disk_name = disk_name;
-                        self.total_disk_space = total_disk_space;
-                        self.available_disk_space = available_disk_space;
+                        let usage_percent = if total_disk_space > 0 {
+                            ((used_disk_space as f64 / total_disk_space as f64) * 100.0) as u64
+                        } else {
+                            0
+                        };
+
+                        let total_bytes_per_sec = read_bytes_per_sec + write_bytes_per_sec;
+
+                        if total_bytes_per_sec > self.disk_max_bytes_per_sec {
+                            self.disk_max_bytes_per_sec = total_bytes_per_sec;
                         }
+
+                        let max = self.disk_max_bytes_per_sec.max(1);
+                        let read_percent       = (read_bytes_per_sec  as f64 / max as f64 * 100.0) as u64;
+                        let write_percent      = (write_bytes_per_sec as f64 / max as f64 * 100.0) as u64;
+                        let read_write_percent = (total_bytes_per_sec  as f64 / max as f64 * 100.0) as u64;
+
+                        self.disk_history.push_back(read_write_percent);
+                        while self.disk_history.len() > 60 {
+                            self.disk_history.pop_front();
+                        }
+
+                        self.disk_name            = disk_name;
+                        self.total_disk_space     = total_disk_space;
+                        self.available_disk_space = available_disk_space;
+                    }
                 }
                 terminal.draw(|frame| self.draw(frame))?;
             }
@@ -337,7 +363,7 @@ impl App {
             .disk_history
             .iter()
             .enumerate()
-            .map(|(i, &v)| (ram_offset + i as f64, v as f64))
+            .map(|(i, &v)| (disk_offset + i as f64, v as f64))
             .collect();
 
         let x_labels = vec![
@@ -352,7 +378,7 @@ impl App {
             Dataset::default()
                 .marker(Marker::Braille)
                 .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::Cyan))
+                .style(Style::default().fg(Color::Green))
                 .data(&disk_data),
         ])
             .block(
@@ -366,7 +392,7 @@ impl App {
             )
             .x_axis(Axis::default().bounds([0.0, 60.0]).labels(x_labels))
             .y_axis(Axis::default().bounds([0.0, 100.0]).labels(y_labels))
-            .render(graph1_area, buf);
+            .render(graph4_area, buf);
 
         //GPU 0
 

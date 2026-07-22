@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{System, CpuRefreshKind, RefreshKind, Disks, DiskUsage, Disk};
+use sysinfo::{System, CpuRefreshKind, RefreshKind, Disks, DiskUsage, Disk, ProcessRefreshKind, ProcessesToUpdate};
 use nvml_wrapper::Nvml;
 use nvml_wrapper::struct_wrappers::device::{MemoryInfo, Utilization};
 use crate::utils::{bytes_to_gb, logo_rata, logo_print};
@@ -24,6 +24,8 @@ pub enum Event {
         total_disk_space: u64,
         available_disk_space: u64,
         used_disk_space: u64,
+        read_bytes_per_sec: u64,
+        write_bytes_per_sec: u64,
     },
 }
 
@@ -138,26 +140,62 @@ pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
 }
 
 pub fn disk_background_thread(tx: mpsc::Sender<Event>) {
+    let mut disks = Disks::new_with_refreshed_list();
+    let mut sys = System::new_with_specifics(
+        RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing().with_disk_usage())
+    );
+
+    let mut prev_read_bytes: u64 = 0;
+    let mut prev_write_bytes: u64 = 0;
+
     loop {
-        let disks = Disks::new_with_refreshed_list();
+        // Disks refreshen
+        disks.refresh(true);
+        sys.refresh_processes(ProcessesToUpdate::All, true);
 
-        for disk in disks.list() {
-            let disk_name = disk.name().to_string_lossy().to_string();
-            let total_disk_space = disk.total_space();
-            let available_disk_space = disk.available_space();
-            let used_disk_space = total_disk_space.saturating_sub(available_disk_space);
+        // Disk-Info vom ersten (oder gewünschten) Disk holen
+        let (disk_name, total_disk_space, available_disk_space, used_disk_space) = disks
+            .list()
+            .first()
+            .map(|disk| {
+                let total = disk.total_space();
+                let available = disk.available_space();
+                let used = total.saturating_sub(available);
+                (
+                    disk.name().to_string_lossy().to_string(),
+                    total,
+                    available,
+                    used,
+                )
+            })
+            .unwrap_or_default();
 
-            if tx.send(Event::DiskProgress {
-                disk_name,
-                total_disk_space,
-                available_disk_space,
-                used_disk_space,
-            }).is_err() {
-                return;
-            }
+        // Gesamt-I/O über alle Prozesse summieren
+        let mut total_read_bytes: u64 = 0;
+        let mut total_write_bytes: u64 = 0;
+        for process in sys.processes().values() {
+            let usage = process.disk_usage();
+            total_read_bytes += usage.read_bytes;
+            total_write_bytes += usage.written_bytes;
+        }
+
+        // Rate berechnen (Delta seit letztem Tick / 1 Sekunde)
+        let read_bytes_per_sec = total_read_bytes.saturating_sub(prev_read_bytes);
+        let write_bytes_per_sec = total_write_bytes.saturating_sub(prev_write_bytes);
+        prev_read_bytes = total_read_bytes;
+        prev_write_bytes = total_write_bytes;
+
+        if tx.send(Event::DiskProgress {
+            read_bytes_per_sec,
+            write_bytes_per_sec,
+            disk_name,
+            total_disk_space,
+            available_disk_space,
+            used_disk_space,
+        }).is_err() {
+            return;
         }
 
         thread::sleep(Duration::from_millis(1000));
     }
 }
-
