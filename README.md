@@ -17,7 +17,7 @@ machines with the role of server, but can also be used on personal devices for d
 
 ## Status
 
-This Program is yet not finished, Ressources works already to the most part, but containers and network don't.
+This Program is not finished yet, "Resources" works already for the most part, but "Containers" and "Network" aren't implemented yet.
 
 ## Features
 
