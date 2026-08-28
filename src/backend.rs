@@ -18,7 +18,7 @@ pub enum Event {
         power_limit: u32,
         memory_info: MemoryInfo,
     },
-    GpuNotAvailable,
+    GpuNotAvailable (bool),
     DiskProgress {
         disk_name: String,
         total_disk_space: u64,
@@ -27,6 +27,7 @@ pub enum Event {
         read_bytes_per_sec: u64,
         write_bytes_per_sec: u64,
     },
+    Error (String),
 }
 
 pub fn handle_input_events(tx: mpsc::Sender<Event>) {
@@ -71,69 +72,71 @@ pub fn ram_background_thread(tx: mpsc::Sender<Event>) {
 pub fn gpu_background_thread(tx: mpsc::Sender<Event>) {
     let nvml = match Nvml::init() {
         Ok(instance) => instance,
-        Err(_) => {
-            tx.send(Event::GpuNotAvailable).ok();
+        Err(e) => {
+            let _ = tx.send(Event::GpuNotAvailable(true));
+            let _ = tx.send(Event::Error(format!("NVML Init Fehler: {e}")));
             return;
         }
     };
 
     let device = match nvml.device_by_index(0) {
         Ok(dev) => dev,
-        Err(_) => {
-            tx.send(Event::GpuNotAvailable).ok();
+        Err(e) => {
+            let _ = tx.send(Event::GpuNotAvailable(true));
+            let _ = tx.send(Event::Error(format!("GPU Device 0 nicht gefunden: {e}")));
             return;
         }
     };
 
-    loop {
-        let rates = match device.utilization_rates() {
-            Ok(r) => r,
+    loop{
+        let utilization = match device.utilization_rates() {
+            Ok(rates) => rates.gpu as f64,
             Err(e) => {
-                eprintln!("utilization_rates: {e}");
-                thread::sleep(Duration::from_millis(1000));
-                continue;
+                let _ = tx.send(Event::Error(format!("GPU Auslastung Fehler: {e}")));
+                0.0 // Fallback Value
             }
         };
 
         let brand = match device.brand() {
-            Ok(b) => b,
+            Ok(brand) => brand,
             Err(e) => {
-                eprintln!("brand: {e}");
-                thread::sleep(Duration::from_millis(1000));
-                continue;
+                let _ = tx.send(Event::Error(format!("GPU Marken Fehler: {e}")));
+                Brand::Unknown // Fallback Value
             }
         };
 
         let fan_speed = match device.fan_speed(0) {
-            Ok(f) => f,
-            Err(e) => { 0 }
+            Ok(speed) => speed,
+            Err(e) => {
+                let _ = tx.send(Event::Error(format!("GPU Lüftergeschwindigkeit Fehler: {e}")));
+                0
+            }
         };
 
         let power_limit = match device.enforced_power_limit() {
-            Ok(p) => p,
+            Ok(limit) => limit,
             Err(e) => {
-                eprintln!("power_limit: {e}");
-                thread::sleep(Duration::from_millis(1000));
-                continue;
+                let _ = tx.send(Event::Error(format!("GPU Power Limit Fehler: {e}")));
+                0
             }
         };
 
-        let memory_info = match device.memory_info() {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("memory_info: {e}");
-                thread::sleep(Duration::from_millis(1000));
-                continue;
+        match device.memory_info() {
+            Ok(memory_info) => {
+                if tx.send(Event::GpuProgress {
+                    utilization,
+                    brand,
+                    fan_speed,
+                    power_limit,
+                    memory_info,
+                }).is_err() {
+                    break;
+                }
             }
-        };
-
-        if tx.send(Event::GpuProgress {
-            utilization: rates.gpu as f64,
-            brand,
-            fan_speed,
-            power_limit,
-            memory_info,
-        }).is_err() { break; }
+            Err(e) => {
+                let _ = tx.send(Event::Error(format!("GPU Memory Info Fehler: {e}")));
+                }
+        }
 
         thread::sleep(Duration::from_millis(1000));
     }
@@ -149,11 +152,9 @@ pub fn disk_background_thread(tx: mpsc::Sender<Event>) {
     let mut prev_write_bytes: u64 = 0;
 
     loop {
-        // Disks refreshen
         disks.refresh(true);
         sys.refresh_processes(ProcessesToUpdate::All, true);
 
-        // Disk-Info vom ersten (oder gewünschten) Disk holen
         let (disk_name, total_disk_space, available_disk_space, used_disk_space) = disks
             .list()
             .first()
@@ -170,7 +171,6 @@ pub fn disk_background_thread(tx: mpsc::Sender<Event>) {
             })
             .unwrap_or_default();
 
-        // Gesamt-I/O über alle Prozesse summieren
         let mut total_read_bytes: u64 = 0;
         let mut total_write_bytes: u64 = 0;
         for process in sys.processes().values() {
@@ -179,7 +179,6 @@ pub fn disk_background_thread(tx: mpsc::Sender<Event>) {
             total_write_bytes += usage.written_bytes;
         }
 
-        // Rate berechnen (Delta seit letztem Tick / 1 Sekunde)
         let read_bytes_per_sec = total_read_bytes.saturating_sub(prev_read_bytes);
         let write_bytes_per_sec = total_write_bytes.saturating_sub(prev_write_bytes);
         prev_read_bytes = total_read_bytes;

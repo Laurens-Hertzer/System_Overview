@@ -17,6 +17,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Tabs, Widget},
 };
+use ratatui::widgets::{BorderType, Borders};
 use crate::utils::logo_rata;
 
 pub struct App {
@@ -39,6 +40,7 @@ pub struct App {
     read_bytes_per_sec: u32,
     write_bytes_per_sec: u32,
     disk_max_bytes_per_sec: u64,
+    errors: VecDeque<String>,
 }
 
 impl App {
@@ -54,7 +56,7 @@ impl App {
             fan_speed: 0,
             power_limit: 0,
             memory_info: None,
-            gpu_not_available: true,
+            gpu_not_available: false,
             disk_history: VecDeque::new(),
             disk_name: String::new(),
             total_disk_space: 0,
@@ -63,6 +65,7 @@ impl App {
             read_bytes_per_sec: 0,
             write_bytes_per_sec: 0,
             disk_max_bytes_per_sec: 0,
+            errors: VecDeque::new(),
         }
     }
 
@@ -75,9 +78,6 @@ impl App {
         while !self.exit {
             if let Ok(event) = rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 match event {
-                    Event::GpuNotAvailable => {
-                        self.gpu_not_available = true;
-                    }
                     Event::Input(key_event) => {
                         if key_event.kind == KeyEventKind::Press {
                             self.handle_key_event(key_event)?;
@@ -103,18 +103,16 @@ impl App {
                         power_limit,
                         memory_info
                     } => {
-                        // 1. Auslastung in den Verlauf pushen
+
                         self.gpu_history.push_back(utilization as u64);
                         while self.gpu_history.len() > 60 {
                             self.gpu_history.pop_front();
                         }
 
-                        // 2. Werte an dein App-Struct übertragen
                         self.fan_speed = fan_speed;
-                        self.power_limit = power_limit / 1000; // von Milliwatt in Watt
+                        self.power_limit = power_limit / 1000;
                         self.memory_info = Some(memory_info);
 
-                        // 3. Das NVML-Brand-Enum in Text für die UI übersetzen
                         self.gpu_brand = match brand {
                             nvml_wrapper::enum_wrappers::device::Brand::Nvidia => "NVIDIA".to_string(),
                             nvml_wrapper::enum_wrappers::device::Brand::GeForce => "GeForce".to_string(),
@@ -122,6 +120,14 @@ impl App {
                             nvml_wrapper::enum_wrappers::device::Brand::Quadro => "Quadro".to_string(),
                             _ => "Unknown GPU".to_string(),
                         };
+                    }
+                    Event::GpuNotAvailable(_) => {
+                        if (self.gpu_not_available == true) {
+                            self.gpu_not_available = true;
+                        }
+                        else {
+                            self.gpu_not_available = false;
+                        }
                     }
                     Event::DiskProgress {
                         disk_name,
@@ -156,6 +162,14 @@ impl App {
                         self.disk_name            = disk_name;
                         self.total_disk_space     = total_disk_space;
                         self.available_disk_space = available_disk_space;
+                    }
+                    Event::Error(error) => {
+                        if !self.errors.contains(&error) {
+                            if self.errors.len() >= 10 {
+                                self.errors.pop_front();
+                            }
+                            self.errors.push_back(error);
+                        }
                     }
                 }
                 terminal.draw(|frame| self.draw(frame))?;
@@ -204,6 +218,7 @@ impl App {
         graph4_area: Rect,
         graph5_area: Rect,
         graph6_area: Rect,
+        error_line: Rect,
         buf: &mut Buffer,
     ) {
         let mut sys = sysinfo::System::new_all();
@@ -307,7 +322,7 @@ impl App {
 
         //GPU 1
 
-        if (self.gpu_not_available == true) {
+        if (self.gpu_not_available == false) {
             let gpu_current = self.gpu_history.back().copied().unwrap_or(0);
 
             let gpu_len = self.gpu_history.len() as f64;
@@ -397,6 +412,27 @@ impl App {
         //GPU 0
 
         //WLAN
+
+        //Errors
+        let error_lines: Vec<Line> = if self.errors.is_empty() {
+            vec![Line::from("• Running smooth")]
+        } else {
+            self.errors
+                .iter()
+                .map(|err| Line::from(format!("• {}", err)))
+                .collect()
+        };
+
+        Paragraph::new(error_lines)
+            .style(Style::default().fg(Color::Red))
+            .block(
+                Block::default()
+                    .title("Errors")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+            )
+            .render(error_line, buf);
+
     }
 
     fn render_containers(&self, area: Rect, buf: &mut Buffer) {
@@ -421,9 +457,9 @@ impl Widget for &App {
         let [tabs_area, content_area] = vertical.areas(area);
 
         let content_layout =
-            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
+            Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(40), Constraint::Percentage(20)]);
 
-        let [top_area, bottom_area] = content_layout.areas(content_area);
+        let [top_area, bottom_area, error_line] = content_layout.areas(content_area);
 
         let horizontal_content_layout = Layout::horizontal([
             Constraint::Ratio(1, 3),
@@ -451,6 +487,7 @@ impl Widget for &App {
                 graph4_area,
                 graph5_area,
                 graph6_area,
+                error_line,
                 buf,
             ),
             1 => self.render_containers(content_area, buf),
